@@ -23,27 +23,53 @@ class ClaraBot(commands.Bot):
         print(f"Bot logged in as {self.user}")
         await self.add_cog(ClaraCommands(self))
 
+    async def on_message(self, message):
+        if message.author == self.user:
+            return
+
+        content = message.content
+
+        if content.lower().startswith("clara"):
+            prompt = content[5:].strip()
+            await self.respond(message, prompt)
+            return
+
+        if self.user and self.user.mentioned_in(message):
+            prompt = content.replace(self.user.mention, "").strip()
+            await self.respond(message, prompt)
+            return
+
+        await self.process_commands(message)
+
+    async def respond(self, message: discord.Message, prompt: str):
+        try:
+            user = f"[{message.author.name}#{message.author.discriminator}]"
+            full_prompt = f"{user}: {prompt}" if prompt else f"{user} greeted me."
+
+            async with message.channel.typing():
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(self.ai_client.ask, full_prompt),
+                    timeout=60.0,
+                )
+
+            await message.channel.send(response)
+
+        except asyncio.TimeoutError:
+            await message.channel.send("Timeout waiting for Clara response.")
+        except Exception as e:
+            await message.channel.send(f"Clara encountered an error: {str(e)}")
+            print(f"Error generating Clara response: {e}")
+
 
 class ClaraCommands(commands.Cog):
     def __init__(self, bot: ClaraBot):
         self.__bot = bot
 
-    @commands.command(name="clara")
-    async def clara(self, ctx: commands.Context, *, message: str):
-        try:
-            user = f"[{ctx.author.name}#{ctx.author.discriminator}]"
-            prompt = f"{user}: {message}"
+    @commands.command(name="ping")
+    async def ping(self, ctx: commands.Context):
+        latency = round(self.__bot.latency * 1000)
+        await ctx.send(f"Pong! Latency: {latency}ms")
 
-            async with ctx.typing():
-                response = await asyncio.wait_for(
-                    asyncio.to_thread(self.__bot.ai_client.ask, prompt),
-                    timeout=60.0,
-                )
-
-            await ctx.send(response)
-
-        except asyncio.TimeoutError:
-            await ctx.send("Timeout waiting for Clara response.")
-        except Exception as e:
-            await ctx.send(f"Error: {str(e)}")
-            print(f"Error in 'clara' command: {e}")
+    @commands.command(name="ask")
+    async def ask(self, ctx: commands.Context, *, prompt: str = ""):
+        await self.__bot.respond(ctx.message, prompt)

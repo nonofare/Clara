@@ -11,5 +11,5 @@ if __name__ == "__main__":
     ai = OllamaClient("OLLAMA_HOST", model)
     ai.set_persona(persona)
 
-    bot = ClaraBot(ai, prefix="/")
+    bot = ClaraBot(ai, prefix="!")
     bot.run(discord_api_key)
