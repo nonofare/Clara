@@ -7,6 +7,7 @@ import asyncio
 class ClaraBot(commands.Bot):
     def __init__(self, ai_client: OllamaClient, prefix: str, intents=None):
         self.__ai_client = ai_client
+        self.__collected_data = {}
         if intents is None:
             intents = discord.Intents.default()
             intents.presences = True
@@ -46,6 +47,17 @@ class ClaraBot(commands.Bot):
             user = f"[{message.author.name}#{message.author.discriminator}]"
             full_prompt = f"{user}: {prompt}" if prompt else f"{user} greeted me."
 
+            if message.guild and message.guild.id in self.__collected_data:
+                server_info = self.__collected_data[message.guild.id]
+                server_info_str = (
+                    f"Server Name: {server_info['name']}\n"
+                    f"Text Channels: {', '.join(server_info['channels'])}\n"
+                    f"Voice Channels: {', '.join(server_info['voice_channels'])}\n"
+                    f"Roles: {', '.join(server_info['roles'])}\n"
+                    f"Members: {', '.join([member['name'] for member in server_info['members']])}"
+                )
+                full_prompt += f"\nServer Info:\n{server_info_str}"
+
             async with message.channel.typing():
                 response = await asyncio.wait_for(
                     asyncio.to_thread(self.ai_client.ask, full_prompt),
@@ -60,6 +72,29 @@ class ClaraBot(commands.Bot):
             await message.channel.send(f"Clara encountered an error: {str(e)}")
             print(f"Error generating Clara response: {e}")
 
+    async def fit(self, guild: discord.Guild):
+        if guild.id in self.__collected_data:
+            self.__collected_data[guild.id].clear()
+
+        data = {
+            "name": guild.name,
+            "members": [
+                {
+                    "id": member.id,
+                    "name": member.name,
+                    "roles": [
+                        role.name for role in member.roles if role.name != "@everyone"
+                    ],
+                }
+                for member in guild.members
+            ],
+            "channels": [channel.name for channel in guild.text_channels],
+            "voice_channels": [channel.name for channel in guild.voice_channels],
+            "roles": [role.name for role in guild.roles if role.name != "@everyone"],
+        }
+
+        self.__collected_data[guild.id] = data
+
 
 class ClaraCommands(commands.Cog):
     def __init__(self, bot: ClaraBot):
@@ -73,3 +108,12 @@ class ClaraCommands(commands.Cog):
     @commands.command(name="ask")
     async def ask(self, ctx: commands.Context, *, prompt: str = ""):
         await self.__bot.respond(ctx.message, prompt)
+
+    @commands.command(name="fit")
+    async def fit(self, ctx: commands.Context):
+        if ctx.guild is None:
+            await ctx.send("This command can only be used in a server.")
+            return
+
+        await self.__bot.fit(ctx.guild)
+        await ctx.send("Clara knows this server better now!")
